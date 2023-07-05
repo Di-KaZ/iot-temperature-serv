@@ -84,6 +84,6 @@
 		<slot />
 	</div>
 	<svelte:fragment slot="footer">
-		<AppBar>Fofana Moussa™️</AppBar>
+		<AppBar>Fofana Moussa™️©️🆗💡</AppBar>
 	</svelte:fragment>
 </AppShell>

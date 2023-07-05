@@ -49,6 +49,21 @@
 	</div>
 {:else}
 	<div class="mx-12">
+		{#if temperature_points}
+			<Line
+				data={{
+					labels: labels,
+					datasets: [
+						{
+							label: 'Temperature (C°)',
+							backgroundColor: 'orange',
+							borderColor: 'orange',
+							data: temperature_points
+						}
+					]
+				}}
+			/>
+		{/if}
 		{#if water_points}
 			<Line
 				data={{
@@ -60,21 +75,6 @@
 							backgroundColor: 'lightblue',
 							borderColor: 'lightblue',
 							data: water_points
-						}
-					]
-				}}
-			/>
-		{/if}
-		{#if temperature_points}
-			<Line
-				data={{
-					labels: labels,
-					datasets: [
-						{
-							label: 'Temperature (C°)',
-							backgroundColor: 'orange',
-							borderColor: 'orange',
-							data: temperature_points
 						}
 					]
 				}}

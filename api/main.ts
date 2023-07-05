@@ -3,115 +3,57 @@ import { PrismaClient } from "@prisma/client";
 import cron from "node-cron";
 import cors from "cors";
 import dotenv from "dotenv";
-import fetch, { Response } from "node-fetch";
+import { prisma } from "./prisma";
+import { lorawanCronTask } from "./lorawan_cron";
+import { MqttHandler } from "./mqtt";
+import { persistPayload } from "./persist";
 
 dotenv.config();
-const prisma = new PrismaClient();
 const app = express();
-// add cors
 app.use(cors({ origin: "*" }));
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+app.listen(3000);
 
-async function fetchEvents() {
-  const maxDate =
-    (
-      await prisma.data.findFirst({
-        orderBy: {
-          createdAt: "desc",
-        },
-      })
-    )?.createdAt ?? new Date(0);
+const mqttHandler = new MqttHandler(
+  process.env.MQTT_URL!,
+  process.env.MQTT_TOPIC!,
+  parseInt(process.env.MQTT_PORT!)
+);
+mqttHandler.connect();
 
-  console.log("📅 maxDate", maxDate);
-  const res = await fetch(
-    process.env.FETCH_DATA_URL! +
-      "?" +
-      new URLSearchParams({
-        after: maxDate.toISOString(),
-      }),
-    {
-      headers: {
-        authorization: process.env.TOKEN!,
-      },
-    }
-  );
-  return res;
+cron.schedule("*/5 * * * *", lorawanCronTask);
+
+console.log("🏃‍♂️💨 Api running on http://localhost:3000");
+
+app.post("/esp/", async (req, res) => {
+  const { device_id, temperature } = req.body;
+
+  const data = await persistPayload(device_id, {
+    temperature,
+    water: -1,
+    conduct: -1,
+  });
+
+  res.json(data);
+});
+
+enum EspMode {
+  MQTT = 1,
+  HTTP = 2,
 }
 
-async function parseEvents(res: Response): Promise<any[]> {
-  return (await res.text())
-    .split(/\r?\n/)
-    .map((line) => {
-      try {
-        return JSON.parse(line.trim());
-      } catch {
-        return null;
-      }
-    })
-    .filter((d) => d !== null);
-}
-
-async function cronTask() {
-  console.log("⏳ running cron task");
-  const rawEvents = await fetchEvents();
-  const events: any[] = await parseEvents(rawEvents);
-  console.log("🚀 events", events.length);
-  for (const event of events) {
-    const payload = event.result.uplink_message?.decoded_payload;
-    if (!payload) return;
-    const device_id = event.result.end_device_ids.dev_eui;
-    const temperature = parseFloat(payload.temp_SOIL);
-    const water = parseFloat(payload.water_SOIL);
-    const conduct = parseFloat(payload.conduct_SOIL);
-    let device = await prisma.device.findFirst({
-      where: {
-        name: device_id,
-      },
-    });
-
-    if (!device) {
-      console.log("Device not found creating");
-      device = await prisma.device.create({
-        data: {
-          name: device_id,
-        },
-      });
-    }
-
-    await prisma.data.create({
-      data: {
-        raw: "",
-        temperature,
-        water,
-        conductivity: conduct,
-        deviceId: device.id,
-        createdAt: event.result.received_at,
-      },
-    });
-  }
-  console.log("🆗 sucess saving events !, ending cron");
-}
-
-// running cron job 5 minutes
-cron.schedule("*/5 * * * *", cronTask);
-
-const server = app.listen(3000);
-
-console.log("🏃‍♂️💨 Server running on http://localhost:3000");
+app.get("/esp/config", async (_, res) => {
+  console.log("📡 esp config");
+  return res.json({
+    mode: EspMode.MQTT,
+    frequency: 5,
+  });
+});
 
 app.get("/devices", async (_, res) => {
   const devices = await prisma.device.findMany();
   res.json(devices);
-});
-
-app.post("/devices", async (req, res) => {
-  const { name } = req.body;
-  const device = await prisma.device.create({
-    data: {
-      name,
-    },
-  });
-  res.json(device);
 });
 
 app.get("/devices/:name", async (req, res) => {
